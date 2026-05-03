@@ -199,3 +199,41 @@ export interface ChartLayout {
   toX: (t: number) => number
   toY: (v: number) => number
 }
+
+/**
+ * Per-frame snapshot of LiveLine's actually-rendered plot state.
+ *
+ * Published once per RAF draw via the optional `onFrame` callback on
+ * `LivelineProps`. The values are post-tween and post-smoothing —
+ * what the canvas painted *this* frame, not the steady-state target.
+ *
+ * **Object reuse contract:** the same object is passed to every call.
+ * Read fields synchronously inside the callback. Do NOT retain the
+ * reference; its fields will mutate on the next frame.
+ */
+export interface LivelineFrameState {
+  /** Plot rectangle in CSS pixels, relative to the canvas container. */
+  plotRect: {
+    left: number
+    right: number
+    top: number
+    bottom: number
+    width: number
+    height: number
+  }
+  /** Currently-rendered window edges in unix seconds. */
+  leftEdge: number
+  rightEdge: number
+  /** Currently-rendered window length in seconds (mid-tween if applicable). */
+  windowSecs: number
+  /** Currently-rendered Y domain — post-`updateRange` smoothing. */
+  yMin: number
+  yMax: number
+  /** Smoothed live value used to position the right-edge tip. */
+  smoothValue: number
+  /** Window-transition progress; 0 settled, (0..1) mid-tween. */
+  windowTransProgress: number
+  /** LiveLine's internal clock at draw time. */
+  now: number
+  now_ms: number
+}
