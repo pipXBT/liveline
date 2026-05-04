@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import type { LineSegment } from './math/segments'
 
 export interface LivelinePoint {
   time: number  // unix seconds
@@ -130,6 +131,19 @@ export interface LivelineProps {
    * read fields synchronously and do not retain the reference.
    */
   onFrame?: (state: LivelineFrameState) => void
+
+  /**
+   * Optional time-keyed line color staining. Each segment overrides the
+   * line stroke color over its [from, to) time range, either with a solid
+   * color or a Y-axis split (above/below a threshold value, optionally
+   * with an "equal" band). Time ranges outside any segment fall through
+   * to the default `color` prop.
+   *
+   * Segments are honored only in line mode and only when the chart is
+   * not actively scrubbing or in reveal-morph; in those edge cases the
+   * line falls back to single-color rendering.
+   */
+  segments?: LineSegment[]
 
   className?: string
   style?: CSSProperties

@@ -1,5 +1,6 @@
 import type { LivelinePalette, ChartLayout, LivelinePoint } from '../types'
 import { drawSpline } from '../math/spline'
+import { partitionLine, type LineSegment, type DataPoint } from '../math/segments'
 import { loadingY, loadingBreath, LOADING_AMPLITUDE_RATIO, LOADING_SCROLL_SPEED } from './loadingShape'
 
 /** Parse a CSS color to [r, g, b, a]. Handles hex, rgb(), rgba(). */
@@ -87,6 +88,7 @@ export function drawLine(
   colorBlend: number = 1,
   skipDashLine: boolean = false,
   fillScale: number = 1,
+  segments?: LineSegment[],
 ) {
   const { h, pad, toX, toY, chartW, chartH } = layout
   const incomingAlpha = ctx.globalAlpha
@@ -165,7 +167,65 @@ export function drawLine(
   ctx.rect(pad.left - 1, pad.top, chartW + 2, chartH)
   ctx.clip()
 
-  if (isScrubbing) {
+  // Segments-aware rendering: if `segments` is provided and we're not in
+  // scrub or reveal-morph mode, partition the line into colored sub-paths
+  // and stroke each one in its color. Fill (if enabled) is drawn once
+  // across the whole line in the default gradient — segments only override
+  // the stroke color, not the fill.
+  const useSegments =
+    segments !== undefined &&
+    segments.length > 0 &&
+    !isScrubbing &&
+    chartReveal >= 1
+  if (useSegments) {
+    // Build data-space points to feed partitionLine. Mirrors the pts
+    // construction above but in (time, value) space.
+    const dataPts: DataPoint[] = visible.map((p, i) => ({
+      time: p.time,
+      value: i === visible.length - 1 ? smoothValue : p.value,
+    }))
+    dataPts.push({ time: now, value: smoothValue })
+
+    // Fill once with the full pts.
+    if (showFill && fillAlpha > 0.01) {
+      const baseAlpha = ctx.globalAlpha
+      ctx.globalAlpha = baseAlpha * fillAlpha
+      const grad = ctx.createLinearGradient(0, pad.top, 0, h - pad.bottom)
+      grad.addColorStop(0, palette.fillTop)
+      grad.addColorStop(1, palette.fillBottom)
+      ctx.beginPath()
+      ctx.moveTo(pts[0][0], h - pad.bottom)
+      ctx.lineTo(pts[0][0], pts[0][1])
+      drawSpline(ctx, pts)
+      ctx.lineTo(pts[pts.length - 1][0], h - pad.bottom)
+      ctx.closePath()
+      ctx.fillStyle = grad
+      ctx.fill()
+      ctx.globalAlpha = baseAlpha
+    }
+
+    // Stroke each sub-path.
+    const baseAlpha = ctx.globalAlpha
+    ctx.globalAlpha = baseAlpha * lineAlpha
+    ctx.lineWidth = palette.lineWidth
+    ctx.lineJoin = 'round'
+    ctx.lineCap = 'round'
+    const subPaths = partitionLine(dataPts, segments!, strokeColor ?? palette.line)
+    for (const sub of subPaths) {
+      if (sub.points.length < 2) continue
+      const subPx: [number, number][] = sub.points.map((p) => {
+        const x = toX(p.time)
+        const y = clampY(toY(p.value))
+        return [x, y]
+      })
+      ctx.strokeStyle = sub.color
+      ctx.beginPath()
+      ctx.moveTo(subPx[0][0], subPx[0][1])
+      drawSpline(ctx, subPx)
+      ctx.stroke()
+    }
+    ctx.globalAlpha = baseAlpha
+  } else if (isScrubbing) {
     // Full-opacity portion: clipped to LEFT of scrub point
     ctx.save()
     ctx.beginPath()

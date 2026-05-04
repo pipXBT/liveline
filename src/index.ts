@@ -18,3 +18,11 @@ export type {
   BadgeVariant,
   LivelineFrameState,
 } from './types'
+export type {
+  LineSegment,
+  SegmentPaint,
+  SolidPaint,
+  SplitPaint,
+  SubPath,
+  DataPoint,
+} from './math/segments'

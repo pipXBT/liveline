@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback } from 'react'
 import type { LivelinePoint, LivelinePalette, LivelineSeries, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint, LivelineFrameState } from './types'
+import type { LineSegment } from './math/segments'
 import { lerp } from './math/lerp'
 import { computeRange } from './math/range'
 import { detectMomentum } from './math/momentum'
@@ -69,6 +70,9 @@ interface EngineConfig {
   // Per-frame plot-state callback. Currently fires only in line mode;
   // candle and multi-series support is future work.
   onFrame?: (state: LivelineFrameState) => void
+
+  // Optional time-keyed line color staining. See LineSegment in math/segments.
+  segments?: LineSegment[]
 }
 
 interface BadgeEls {
@@ -1880,6 +1884,7 @@ export function useLivelineEngine(
       chartReveal,
       pauseProgress,
       now_ms,
+      segments: cfg.segments,
     })
 
     // During morph (chart ↔ empty), overlay the gradient gap + text on
