@@ -1,0 +1,145 @@
+import { describe, it, expect } from 'vitest'
+import { partitionLine, type LineSegment, type SubPath } from '../segments'
+
+// All tests in this file use abstract data points (time, value) — no
+// pixel-space mapping. The helper operates entirely in data space; the
+// caller is responsible for projecting sub-path points to pixels.
+
+const dp = (time: number, value: number) => ({ time, value })
+
+const solid = (from: number, to: number, color: string): LineSegment => ({
+  from,
+  to,
+  paint: { kind: 'solid', color },
+})
+
+// Sub-path equality with float tolerance on time/value, since linear
+// interpolation can produce e.g. 220.00000000000003 instead of 220.
+function expectSubPaths(actual: SubPath[], expected: SubPath[]) {
+  expect(actual.length).toBe(expected.length)
+  for (let i = 0; i < actual.length; i++) {
+    expect(actual[i].color).toBe(expected[i].color)
+    expect(actual[i].points.length).toBe(expected[i].points.length)
+    for (let j = 0; j < actual[i].points.length; j++) {
+      expect(actual[i].points[j].time).toBeCloseTo(expected[i].points[j].time, 6)
+      expect(actual[i].points[j].value).toBeCloseTo(expected[i].points[j].value, 6)
+    }
+  }
+}
+
+describe('partitionLine — solid segments', () => {
+  it('returns a single default-colored sub-path when no segments are provided', () => {
+    const points = [dp(1, 100), dp(2, 110), dp(3, 105)]
+    const result = partitionLine(points, [], '#blue')
+    expectSubPaths(result, [{ color: '#blue', points }])
+  })
+
+  it('returns an empty array when there are no points', () => {
+    const result = partitionLine([], [solid(1, 5, '#red')], '#blue')
+    expectSubPaths(result, [])
+  })
+
+  it('returns a single sub-path when a single point exists (no line to draw, but stable contract)', () => {
+    const result = partitionLine([dp(2, 100)], [], '#blue')
+    expectSubPaths(result, [{ color: '#blue', points: [dp(2, 100)] }])
+  })
+
+  it('paints the entire line in segment color when a solid segment covers all data', () => {
+    const points = [dp(1, 100), dp(2, 110), dp(3, 105)]
+    const result = partitionLine(points, [solid(0, 10, '#red')], '#blue')
+    expectSubPaths(result, [{ color: '#red', points }])
+  })
+
+  it('emits three sub-paths when a solid segment lands inside data with native boundary points', () => {
+    // Native points at exactly t=2 and t=4 — the segment boundaries.
+    const points = [dp(1, 100), dp(2, 200), dp(3, 300), dp(4, 400), dp(5, 500)]
+    const result = partitionLine(points, [solid(2, 4, '#red')], '#blue')
+
+    // Pre: includes the boundary point at t=2 (so the pre stroke ends at the boundary).
+    // Segment: also includes the boundary points at t=2 and t=4 (so the colored stroke
+    //          starts at the boundary and ends at the next boundary).
+    // Post: includes the boundary point at t=4 (so the post stroke starts at the boundary).
+    expectSubPaths(result, [
+      { color: '#blue', points: [dp(1, 100), dp(2, 200)] },
+      { color: '#red', points: [dp(2, 200), dp(3, 300), dp(4, 400)] },
+      { color: '#blue', points: [dp(4, 400), dp(5, 500)] },
+    ])
+  })
+
+  it('interpolates synthetic boundary points when the segment edge lands between native points', () => {
+    // Boundaries at t=2.5 and t=4.5; native points at integer times.
+    // Linear interp: value at t=2.5 between (2,200) and (3,300) = 250.
+    //                value at t=4.5 between (4,400) and (5,500) = 450.
+    const points = [dp(1, 100), dp(2, 200), dp(3, 300), dp(4, 400), dp(5, 500)]
+    const result = partitionLine(points, [solid(2.5, 4.5, '#red')], '#blue')
+
+    expectSubPaths(result, [
+      { color: '#blue', points: [dp(1, 100), dp(2, 200), dp(2.5, 250)] },
+      { color: '#red', points: [dp(2.5, 250), dp(3, 300), dp(4, 400), dp(4.5, 450)] },
+      { color: '#blue', points: [dp(4.5, 450), dp(5, 500)] },
+    ])
+  })
+
+  it('handles a segment that starts before the first data point', () => {
+    const points = [dp(2, 200), dp(3, 300), dp(4, 400)]
+    const result = partitionLine(points, [solid(0, 3.5, '#red')], '#blue')
+    // Segment covers from before first point through t=3.5; no synthetic
+    // boundary at t=0 (no data to interpolate from).
+    expectSubPaths(result, [
+      { color: '#red', points: [dp(2, 200), dp(3, 300), dp(3.5, 350)] },
+      { color: '#blue', points: [dp(3.5, 350), dp(4, 400)] },
+    ])
+  })
+
+  it('handles a segment that extends beyond the last data point', () => {
+    const points = [dp(2, 200), dp(3, 300), dp(4, 400)]
+    const result = partitionLine(points, [solid(2.5, 10, '#red')], '#blue')
+    expectSubPaths(result, [
+      { color: '#blue', points: [dp(2, 200), dp(2.5, 250)] },
+      { color: '#red', points: [dp(2.5, 250), dp(3, 300), dp(4, 400)] },
+    ])
+  })
+
+  it('produces no sub-path for a segment entirely before the first data point', () => {
+    const points = [dp(5, 500), dp(6, 600)]
+    const result = partitionLine(points, [solid(1, 3, '#red')], '#blue')
+    // Segment never overlaps any data; whole line is default-colored.
+    expectSubPaths(result, [{ color: '#blue', points }])
+  })
+
+  it('produces no sub-path for a segment entirely after the last data point', () => {
+    const points = [dp(1, 100), dp(2, 200)]
+    const result = partitionLine(points, [solid(5, 7, '#red')], '#blue')
+    expectSubPaths(result, [{ color: '#blue', points }])
+  })
+
+  it('handles multiple non-overlapping solid segments', () => {
+    const points = [dp(0, 0), dp(1, 100), dp(2, 200), dp(3, 300), dp(4, 400), dp(5, 500)]
+    const result = partitionLine(
+      points,
+      [solid(1, 2, '#red'), solid(3, 4, '#green')],
+      '#blue',
+    )
+    expectSubPaths(result, [
+      { color: '#blue', points: [dp(0, 0), dp(1, 100)] },
+      { color: '#red', points: [dp(1, 100), dp(2, 200)] },
+      { color: '#blue', points: [dp(2, 200), dp(3, 300)] },
+      { color: '#green', points: [dp(3, 300), dp(4, 400)] },
+      { color: '#blue', points: [dp(4, 400), dp(5, 500)] },
+    ])
+  })
+
+  it('renders a segment with no native points inside via two synthetic boundary points', () => {
+    // Segment from t=2.2 to t=2.8; only native points at t=2 and t=3.
+    const points = [dp(1, 100), dp(2, 200), dp(3, 300), dp(4, 400)]
+    const result = partitionLine(points, [solid(2.2, 2.8, '#red')], '#blue')
+    // Pre: native points up to t=2, then interpolated boundary at t=2.2 (value 220).
+    // Segment: just the two interpolated boundaries (220 at t=2.2, 280 at t=2.8).
+    // Post: interpolated boundary at t=2.8, then native points from t=3.
+    expectSubPaths(result, [
+      { color: '#blue', points: [dp(1, 100), dp(2, 200), dp(2.2, 220)] },
+      { color: '#red', points: [dp(2.2, 220), dp(2.8, 280)] },
+      { color: '#blue', points: [dp(2.8, 280), dp(3, 300), dp(4, 400)] },
+    ])
+  })
+})
