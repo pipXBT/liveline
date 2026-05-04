@@ -16,10 +16,19 @@ export interface SplitPaint {
   kind: 'split'
   /** Y-axis value above which the line is painted in `above` color. */
   threshold: number
-  /** Color when value >= threshold (the boundary itself counts as above). */
+  /** Color when value > threshold + equalRange. */
   above: string
-  /** Color when value < threshold. */
+  /** Color when value < threshold - equalRange. */
   below: string
+  /**
+   * Optional color for the "equal band" |value - threshold| <= equalRange.
+   * Both `equal` and `equalRange` must be set to enable the equal band.
+   * When unset, the line is split strictly into above (value >= threshold)
+   * and below (value < threshold).
+   */
+  equal?: string
+  /** Half-width of the equal band around `threshold`. Default 0 (no band). */
+  equalRange?: number
 }
 
 export type SegmentPaint = SolidPaint | SplitPaint
@@ -73,6 +82,21 @@ function segmentAt(
   return null
 }
 
+type SplitZone = 'above' | 'equal' | 'below'
+
+function splitZone(value: number, paint: SplitPaint): SplitZone {
+  const r = paint.equalRange
+  if (paint.equal !== undefined && r !== undefined && r > 0) {
+    if (Math.abs(value - paint.threshold) <= r) return 'equal'
+  }
+  return value >= paint.threshold ? 'above' : 'below'
+}
+
+function colorForZone(zone: SplitZone, paint: SplitPaint): string {
+  if (zone === 'equal' && paint.equal !== undefined) return paint.equal
+  return zone === 'above' ? paint.above : paint.below
+}
+
 function paintAt(
   time: number,
   value: number,
@@ -83,7 +107,27 @@ function paintAt(
   if (!seg) return defaultColor
   const paint = seg.paint
   if (paint.kind === 'solid') return paint.color
-  return value >= paint.threshold ? paint.above : paint.below
+  return colorForZone(splitZone(value, paint), paint)
+}
+
+/** Ordered list of value-axis crossings to traverse when going from
+ *  `prevZone` to `pointZone` within a split segment. */
+function crossingValuesForZoneTransition(
+  prevZone: SplitZone,
+  pointZone: SplitZone,
+  paint: SplitPaint,
+): number[] {
+  const r = paint.equalRange ?? 0
+  const tPlus = paint.threshold + r
+  const tMinus = paint.threshold - r
+  if (prevZone === pointZone) return []
+  if (prevZone === 'above' && pointZone === 'equal') return [tPlus]
+  if (prevZone === 'above' && pointZone === 'below') return [tPlus, tMinus]
+  if (prevZone === 'equal' && pointZone === 'above') return [tPlus]
+  if (prevZone === 'equal' && pointZone === 'below') return [tMinus]
+  if (prevZone === 'below' && pointZone === 'equal') return [tMinus]
+  if (prevZone === 'below' && pointZone === 'above') return [tMinus, tPlus]
+  return []
 }
 
 /**
@@ -146,22 +190,17 @@ export function partitionLine(
 
   // Walk merged points and emit sub-paths on color transitions.
   //
-  // Boundary handling distinguishes four cases:
-  //   (a) inSameSplit, prev.value === threshold:
-  //       prev IS the boundary. Closing sub-path already ends at prev;
-  //       new sub-path starts at [prev, point].
-  //   (b) inSameSplit, point.value === threshold:
-  //       point IS the boundary. Closing sub-path appends point; new
-  //       starts at [point].
-  //   (c) inSameSplit, strict crossing:
-  //       Interpolate crossing at value=threshold. Closing sub-path
-  //       appends crossing; new sub-path starts at [crossing, point].
-  //   (e) prev in split, point in different segment, line crosses
-  //       threshold within in-split portion:
-  //       Three sub-paths emitted in this iteration — closing appends
-  //       crossing, intermediate from crossing to point in the OTHER
-  //       split-side color, new sub-path starts at [point].
-  //   Else (g): time boundary — closing appends point; new starts at [point].
+  // Three structural cases:
+  //   sameSplit:  prev and point in the same split segment. Uses the
+  //               zone-transition helper, which handles 1, 2, or more
+  //               zone boundaries (above ↔ equal ↔ below) between them.
+  //   exit:       prev in a split segment, point not (different segment
+  //               or none). Compute a virtual endpoint at the segment's
+  //               exit time, run the zone-transition helper for the
+  //               in-split portion, then time-boundary into the next
+  //               segment's paint.
+  //   default:    time boundary — closing appends point, new starts
+  //               at [point].
   const subPaths: SubPath[] = []
   let currentColor = paintAt(
     merged[0].time,
@@ -170,6 +209,39 @@ export function partitionLine(
     defaultColor,
   )
   let currentPoints: DataPoint[] = [merged[0]]
+
+  const TIME_EPS = 1e-9
+  const sameTime = (a: DataPoint, b: DataPoint) =>
+    Math.abs(a.time - b.time) < TIME_EPS
+
+  /** Apply a sequence of zone-transitions between `prev` and `endPoint`,
+   *  updating `currentPoints`/`currentColor` and emitting sub-paths.
+   *  Returns the value of `currentPoints[-1]` at the end. */
+  function applyZoneTransitions(
+    prev: DataPoint,
+    endPoint: DataPoint,
+    split: SplitPaint,
+  ): void {
+    const transitions = computeZoneTransitions(prev, endPoint, split)
+    for (const trans of transitions) {
+      const c = trans.crossing
+      if (sameTime(c, prev)) {
+        // Crossing collapses to prev. cp already ends at prev.
+        subPaths.push({ color: currentColor, points: currentPoints })
+        currentPoints = [{ ...prev }]
+      } else if (sameTime(c, endPoint)) {
+        // Crossing collapses to endPoint.
+        currentPoints.push({ ...endPoint })
+        subPaths.push({ color: currentColor, points: currentPoints })
+        currentPoints = [{ ...endPoint }]
+      } else {
+        currentPoints.push(c)
+        subPaths.push({ color: currentColor, points: currentPoints })
+        currentPoints = [c]
+      }
+      currentColor = trans.postColor
+    }
+  }
 
   for (let i = 1; i < merged.length; i++) {
     const prev = merged[i - 1]
@@ -188,71 +260,53 @@ export function partitionLine(
 
     if (sameSplit && prevSeg!.paint.kind === 'split') {
       const split = prevSeg!.paint
-      const threshold = split.threshold
-      if (prev.value === threshold) {
-        // (a) prev IS the boundary.
-        subPaths.push({ color: currentColor, points: currentPoints })
-        currentPoints = [prev, point]
-      } else if (point.value === threshold) {
-        // (b) point IS the boundary.
+      applyZoneTransitions(prev, point, split)
+      // Append point if not already last (it isn't when crossings are non-collapsing).
+      const last = currentPoints[currentPoints.length - 1]
+      if (!last || !sameTime(last, point)) {
         currentPoints.push(point)
-        subPaths.push({ color: currentColor, points: currentPoints })
-        currentPoints = [point]
-      } else {
-        // (c) Strict Y-crossing.
-        const span = point.value - prev.value
-        const t = prev.time + (threshold - prev.value) * (point.time - prev.time) / span
-        const crossing = { time: t, value: threshold }
-        currentPoints.push(crossing)
-        subPaths.push({ color: currentColor, points: currentPoints })
-        currentPoints = [crossing, point]
       }
     } else if (
       prevSeg !== null &&
       prevSeg.paint.kind === 'split' &&
       prevSeg !== pointSeg
     ) {
-      // (e) Exit case: prev in split, point in different segment.
-      // Check if the line crosses threshold within the in-split portion
-      // [prev.time, min(point.time, prevSeg.to)].
+      // Exit case. Build a virtual endpoint at the segment's exit time
+      // and run zone transitions over the in-split portion.
       const split = prevSeg.paint
-      const threshold = split.threshold
       const inSplitEndTime = Math.min(point.time, prevSeg.to)
       const fraction =
         (inSplitEndTime - prev.time) / (point.time - prev.time)
-      const inSplitEndValue = prev.value + (point.value - prev.value) * fraction
-      const prevAbove = prev.value >= threshold
-      const endAbove = inSplitEndValue >= threshold
-      if (
-        prevAbove !== endAbove &&
-        prev.value !== threshold &&
-        inSplitEndValue !== threshold
-      ) {
-        const span = point.value - prev.value
-        const t =
-          prev.time + (threshold - prev.value) * (point.time - prev.time) / span
-        const crossing = { time: t, value: threshold }
-        currentPoints.push(crossing)
-        subPaths.push({ color: currentColor, points: currentPoints })
-        const intermediateColor = prevAbove ? split.below : split.above
-        subPaths.push({
-          color: intermediateColor,
-          points: [crossing, point],
-        })
-        currentPoints = [point]
-      } else {
-        // No Y-crossing inside in-split portion; standard time boundary.
-        currentPoints.push(point)
-        subPaths.push({ color: currentColor, points: currentPoints })
-        currentPoints = [point]
+      const inSplitEndValue =
+        prev.value + (point.value - prev.value) * fraction
+      const virtualEnd: DataPoint = {
+        time: inSplitEndTime,
+        value: inSplitEndValue,
       }
+      applyZoneTransitions(prev, virtualEnd, split)
+      // Append virtualEnd if not already last (it isn't when no crossings collapsed to it).
+      const last = currentPoints[currentPoints.length - 1]
+      if (!last || !sameTime(last, virtualEnd)) {
+        currentPoints.push(virtualEnd)
+      }
+      // Close the in-split sub-path.
+      subPaths.push({ color: currentColor, points: currentPoints })
+      // Start out-of-split sub-path. If virtualEnd === point, we're at the time
+      // boundary AT point — start with [point]. Otherwise the line continues
+      // past virtualEnd to point, so start with [virtualEnd, point].
+      if (sameTime(virtualEnd, point)) {
+        currentPoints = [{ ...point }]
+      } else {
+        currentPoints = [virtualEnd, point]
+      }
+      currentColor = pointColor
     } else {
-      // (g) Standard time boundary — neither side is in the same split.
+      // Default time boundary.
       currentPoints.push(point)
       subPaths.push({ color: currentColor, points: currentPoints })
       currentPoints = [point]
+      currentColor = pointColor
     }
-    currentColor = pointColor
   }
 
   if (currentPoints.length > 0) {
@@ -260,4 +314,57 @@ export function partitionLine(
   }
 
   return subPaths
+}
+
+/** Compute the ordered list of zone-boundary crossings to traverse from
+ *  `prev` to `point` within a split segment. */
+function computeZoneTransitions(
+  prev: DataPoint,
+  point: DataPoint,
+  split: SplitPaint,
+): Array<{ crossing: DataPoint; postColor: string }> {
+  const prevZone = splitZone(prev.value, split)
+  const pointZone = splitZone(point.value, split)
+  if (prevZone === pointZone) return []
+
+  const hasEqual =
+    split.equal !== undefined && (split.equalRange ?? 0) > 0
+  const r = split.equalRange ?? 0
+  const tPlus = split.threshold + r
+  const tMinus = split.threshold - r
+
+  const breaks: Array<{ value: number; postZone: SplitZone }> = []
+  if (!hasEqual) {
+    // Single boundary at threshold (no equal band).
+    breaks.push({ value: split.threshold, postZone: pointZone })
+  } else if (prevZone === 'above') {
+    if (pointZone === 'equal') breaks.push({ value: tPlus, postZone: 'equal' })
+    else if (pointZone === 'below') {
+      breaks.push({ value: tPlus, postZone: 'equal' })
+      breaks.push({ value: tMinus, postZone: 'below' })
+    }
+  } else if (prevZone === 'equal') {
+    if (pointZone === 'above') breaks.push({ value: tPlus, postZone: 'above' })
+    else if (pointZone === 'below') breaks.push({ value: tMinus, postZone: 'below' })
+  } else {
+    // 'below'
+    if (pointZone === 'equal') breaks.push({ value: tMinus, postZone: 'equal' })
+    else if (pointZone === 'above') {
+      breaks.push({ value: tMinus, postZone: 'equal' })
+      breaks.push({ value: tPlus, postZone: 'above' })
+    }
+  }
+
+  const span = point.value - prev.value
+  const tSpan = point.time - prev.time
+  return breaks.map((brk) => {
+    const t =
+      span === 0
+        ? prev.time
+        : prev.time + ((brk.value - prev.value) * tSpan) / span
+    return {
+      crossing: { time: t, value: brk.value },
+      postColor: colorForZone(brk.postZone, split),
+    }
+  })
 }

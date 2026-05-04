@@ -25,6 +25,20 @@ const split = (
   paint: { kind: 'split', threshold, above, below },
 })
 
+const splitEq = (
+  from: number,
+  to: number,
+  threshold: number,
+  above: string,
+  below: string,
+  equal: string,
+  equalRange: number,
+): LineSegment => ({
+  from,
+  to,
+  paint: { kind: 'split', threshold, above, below, equal, equalRange },
+})
+
 // Sub-path equality with float tolerance on time/value, since linear
 // interpolation can produce e.g. 220.00000000000003 instead of 220.
 function expectSubPaths(actual: SubPath[], expected: SubPath[]) {
@@ -231,6 +245,79 @@ describe('partitionLine — split segments', () => {
       { color: '#green', points: [dp(1.5, 100), dp(2, 120), dp(2.5, 100)] },
       { color: '#red', points: [dp(2.5, 100), dp(3, 80)] },
       { color: '#blue', points: [dp(3, 80), dp(4, 80)] },
+    ])
+  })
+
+  it('inserts amber band crossings when equal+equalRange are set and the line passes above → equal → below', () => {
+    // Threshold=100, equalRange=10. Above zone: v>110. Equal: 90 ≤ v ≤ 110. Below: v<90.
+    // (0, 150) → (1, 50): line passes through equal band.
+    //   above→equal at v=110: t = 0 + (110-150)/(50-150) * 1 = 40/100 = 0.4.
+    //   equal→below at v=90:  t = 0 + (90-150)/(50-150) * 1  = 60/100 = 0.6.
+    const points = [dp(0, 150), dp(1, 50)]
+    const result = partitionLine(
+      points,
+      [splitEq(0, 10, 100, '#green', '#red', '#amber', 10)],
+      '#blue',
+    )
+    expectSubPaths(result, [
+      { color: '#green', points: [dp(0, 150), dp(0.4, 110)] },
+      { color: '#amber', points: [dp(0.4, 110), dp(0.6, 90)] },
+      { color: '#red', points: [dp(0.6, 90), dp(1, 50)] },
+    ])
+  })
+
+  it('inserts a single crossing when above → equal (line ends inside equal band)', () => {
+    // (0, 150) → (1, 100): ends inside equal band.
+    //   above→equal at v=110: t = 0 + (110-150)/(100-150) * 1 = 40/50 = 0.8.
+    const points = [dp(0, 150), dp(1, 100)]
+    const result = partitionLine(
+      points,
+      [splitEq(0, 10, 100, '#green', '#red', '#amber', 10)],
+      '#blue',
+    )
+    expectSubPaths(result, [
+      { color: '#green', points: [dp(0, 150), dp(0.8, 110)] },
+      { color: '#amber', points: [dp(0.8, 110), dp(1, 100)] },
+    ])
+  })
+
+  it('inserts a single crossing when equal → below (line starts inside equal band)', () => {
+    // (0, 100) → (1, 50): starts inside equal band.
+    //   equal→below at v=90: t = 0 + (90-100)/(50-100) * 1 = 10/50 = 0.2.
+    const points = [dp(0, 100), dp(1, 50)]
+    const result = partitionLine(
+      points,
+      [splitEq(0, 10, 100, '#green', '#red', '#amber', 10)],
+      '#blue',
+    )
+    expectSubPaths(result, [
+      { color: '#amber', points: [dp(0, 100), dp(0.2, 90)] },
+      { color: '#red', points: [dp(0.2, 90), dp(1, 50)] },
+    ])
+  })
+
+  it('keeps a single amber sub-path when the line stays inside the equal band', () => {
+    const points = [dp(0, 95), dp(1, 105), dp(2, 100)]
+    const result = partitionLine(
+      points,
+      [splitEq(0, 10, 100, '#green', '#red', '#amber', 10)],
+      '#blue',
+    )
+    expectSubPaths(result, [{ color: '#amber', points }])
+  })
+
+  it('falls back to plain above/below behavior when equal/equalRange are absent', () => {
+    // Without equal+equalRange, threshold=100 splits into above (>=) / below.
+    // (0, 150) → (1, 50): single crossing at threshold = (0.5, 100).
+    const points = [dp(0, 150), dp(1, 50)]
+    const result = partitionLine(
+      points,
+      [split(0, 10, 100, '#green', '#red')],
+      '#blue',
+    )
+    expectSubPaths(result, [
+      { color: '#green', points: [dp(0, 150), dp(0.5, 100)] },
+      { color: '#red', points: [dp(0.5, 100), dp(1, 50)] },
     ])
   })
 
