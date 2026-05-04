@@ -121,6 +121,16 @@ export interface LivelineProps {
   onSeriesToggle?: (id: string, visible: boolean) => void  // Multi-series toggle callback
   seriesToggleCompact?: boolean  // Show only colored dots (no labels) in series toggle (default: false)
 
+  /**
+   * Fires once per RAF draw with the actually-rendered plot state.
+   * Use to anchor external annotations (SVG/HTML overlays) to the canvas
+   * without re-implementing LiveLine's internal coordinate math.
+   *
+   * The argument is a single shared object that mutates between calls;
+   * read fields synchronously and do not retain the reference.
+   */
+  onFrame?: (state: LivelineFrameState) => void
+
   className?: string
   style?: CSSProperties
 }
