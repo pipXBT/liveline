@@ -1,11 +1,12 @@
 import { useRef, useEffect, useCallback } from 'react'
-import type { LivelinePoint, LivelinePalette, LivelineSeries, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint } from './types'
+import type { LivelinePoint, LivelinePalette, LivelineSeries, Momentum, ReferenceLine, HoverPoint, Padding, ChartLayout, OrderbookData, DegenOptions, BadgeVariant, CandlePoint, LivelineFrameState } from './types'
 import { lerp } from './math/lerp'
 import { computeRange } from './math/range'
 import { detectMomentum } from './math/momentum'
 import { interpolateAtTime } from './math/interpolate'
 import { getDpr, applyDpr } from './canvas/dpr'
 import { drawFrame, drawCandleFrame, drawMultiFrame, FADE_EDGE_WIDTH } from './draw'
+import { createFrameStatePublisher } from './frame-state'
 import type { MultiSeriesEntry } from './draw'
 import { drawLoading } from './draw/loading'
 import { drawEmpty } from './draw/empty'
@@ -64,6 +65,10 @@ interface EngineConfig {
   }>
   isMultiSeries?: boolean
   hiddenSeriesIds?: Set<string>
+
+  // Per-frame plot-state callback. Currently fires only in line mode;
+  // candle and multi-series support is future work.
+  onFrame?: (state: LivelineFrameState) => void
 }
 
 interface BadgeEls {
@@ -593,6 +598,7 @@ export function useLivelineEngine(
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null)
   const rafRef = useRef(0)
   const lastFrameRef = useRef(0)
+  const frameStatePublisherRef = useRef(createFrameStatePublisher())
 
   // Badge DOM element refs
   const badgeRef = useRef<BadgeEls | null>(null)
@@ -1807,6 +1813,18 @@ export function useLivelineEngine(
       toX: (t: number) => pad.left + ((t - leftEdge) / (rightEdge - leftEdge)) * chartW,
       toY: (v: number) => pad.top + (1 - (v - minVal) / valRange) * chartH,
     }
+
+    // Publish per-frame plot state for external annotation overlays.
+    frameStatePublisherRef.current(cfg.onFrame, {
+      layout,
+      displayWindow: windowSecs,
+      displayMin: rangeResult.displayMin,
+      displayMax: rangeResult.displayMax,
+      smoothValue,
+      windowTransProgress,
+      now,
+      now_ms,
+    })
 
     // Momentum
     const momentum: Momentum = cfg.momentumOverride ?? detectMomentum(visible)
