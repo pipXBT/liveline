@@ -1,5 +1,5 @@
 import type { LivelinePalette, ChartLayout, LivelinePoint } from '../types'
-import { drawSpline } from '../math/spline'
+import { drawSpline, splineToPath2D } from '../math/spline'
 import { partitionLine, type LineSegment, type DataPoint } from '../math/segments'
 import { loadingY, loadingBreath, LOADING_AMPLITUDE_RATIO, LOADING_SCROLL_SPEED } from './loadingShape'
 import { blendColor } from '../math/color'
@@ -17,31 +17,29 @@ function renderCurve(
 ) {
   const { h, pad } = layout
   const baseAlpha = ctx.globalAlpha
+  const linePath = splineToPath2D(pts)
 
   if (showFill && fillAlpha > 0.01) {
     ctx.globalAlpha = baseAlpha * fillAlpha
     const grad = ctx.createLinearGradient(0, pad.top, 0, h - pad.bottom)
     grad.addColorStop(0, palette.fillTop)
     grad.addColorStop(1, palette.fillBottom)
-    ctx.beginPath()
-    ctx.moveTo(pts[0][0], h - pad.bottom)
-    ctx.lineTo(pts[0][0], pts[0][1])
-    drawSpline(ctx, pts)
-    ctx.lineTo(pts[pts.length - 1][0], h - pad.bottom)
-    ctx.closePath()
+    const fillPath = new Path2D()
+    fillPath.moveTo(pts[0][0], h - pad.bottom)
+    fillPath.lineTo(pts[0][0], pts[0][1])
+    fillPath.addPath(linePath)
+    fillPath.lineTo(pts[pts.length - 1][0], h - pad.bottom)
+    fillPath.closePath()
     ctx.fillStyle = grad
-    ctx.fill()
+    ctx.fill(fillPath)
   }
 
   ctx.globalAlpha = baseAlpha * lineAlpha
-  ctx.beginPath()
-  ctx.moveTo(pts[0][0], pts[0][1])
-  drawSpline(ctx, pts)
   ctx.strokeStyle = strokeColor ?? palette.line
   ctx.lineWidth = palette.lineWidth
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
-  ctx.stroke()
+  ctx.stroke(linePath)
   ctx.globalAlpha = baseAlpha
 }
 
@@ -191,10 +189,7 @@ export function drawLine(
         return [x, y]
       })
       ctx.strokeStyle = sub.color
-      ctx.beginPath()
-      ctx.moveTo(subPx[0][0], subPx[0][1])
-      drawSpline(ctx, subPx)
-      ctx.stroke()
+      ctx.stroke(splineToPath2D(subPx))
     }
     ctx.globalAlpha = baseAlpha
   } else if (isScrubbing) {

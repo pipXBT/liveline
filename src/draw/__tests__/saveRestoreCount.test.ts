@@ -1,3 +1,15 @@
+if (typeof globalThis.Path2D === 'undefined') {
+  class Path2DStub {
+    moveTo() {}
+    lineTo() {}
+    bezierCurveTo() {}
+    closePath() {}
+    addPath() {}
+  }
+  // @ts-expect-error global stub for tests
+  globalThis.Path2D = Path2DStub
+}
+
 import { describe, it, expect } from 'vitest'
 import { drawFrame, createShakeState, type DrawOptions, drawMultiFrame, type MultiSeriesDrawOptions } from '../index'
 import { createRecordCtx, type TraceEvent } from '../../__tests__/recordCtx'
