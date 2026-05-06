@@ -102,29 +102,29 @@ export function drawFrame(
 
   // 1. Reference line (behind everything) — fades with reveal
   if (opts.referenceLine && reveal > 0.01) {
-    ctx.save()
-    if (reveal < 1) ctx.globalAlpha = reveal
+    const prevA = ctx.globalAlpha
+    ctx.globalAlpha = prevA * reveal
     drawReferenceLine(ctx, layout, palette, opts.referenceLine)
-    ctx.restore()
+    ctx.globalAlpha = prevA
   }
 
   // 2. Grid — fades in delayed (15%–70% of reveal)
   if (opts.showGrid) {
     const gridAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
     if (gridAlpha > 0.01) {
-      ctx.save()
-      if (gridAlpha < 1) ctx.globalAlpha = gridAlpha
+      const prevA = ctx.globalAlpha
+      ctx.globalAlpha = prevA * gridAlpha
       drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
-      ctx.restore()
+      ctx.globalAlpha = prevA
     }
   }
 
   // 2b. Orderbook (behind line) — fades with reveal
   if (opts.orderbookData && opts.orderbookState && reveal > 0.01) {
-    ctx.save()
-    if (reveal < 1) ctx.globalAlpha = reveal
+    const prevA = ctx.globalAlpha
+    ctx.globalAlpha = prevA * reveal
     drawOrderbook(ctx, layout, palette, opts.orderbookData, opts.dt, opts.orderbookState, opts.swingMagnitude)
-    ctx.restore()
+    ctx.globalAlpha = prevA
   }
 
   // 3. Line + fill (with scrub dimming + reveal morphing)
@@ -135,10 +135,10 @@ export function drawFrame(
   {
     const timeAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
     if (timeAlpha > 0.01) {
-      ctx.save()
-      if (timeAlpha < 1) ctx.globalAlpha = timeAlpha
+      const prevA = ctx.globalAlpha
+      ctx.globalAlpha = prevA * timeAlpha
       drawTimeAxis(ctx, layout, palette, opts.windowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
-      ctx.restore()
+      ctx.globalAlpha = prevA
     }
   }
 
@@ -159,10 +159,10 @@ export function drawFrame(
     const dotAlpha = reveal < 0.3 ? 0 : (reveal - 0.3) / 0.7
     const showPulse = opts.showPulse && reveal > 0.6 && pause < 0.5
     if (dotAlpha > 0.01) {
-      ctx.save()
-      if (dotAlpha < 1) ctx.globalAlpha = dotAlpha
+      const prevA = ctx.globalAlpha
+      ctx.globalAlpha = prevA * dotAlpha
       drawDot(ctx, lastPt[0], lastPt[1], palette, showPulse, dotScrub, opts.now_ms)
-      ctx.restore()
+      ctx.globalAlpha = prevA
     }
 
     // 5b. Arrows — appear late in reveal (60%+), fade with pause
@@ -170,13 +170,13 @@ export function drawFrame(
       const arrowReveal = reveal < 1 ? revealRamp(0.6, 1) : 1
       const arrowAlpha = arrowReveal * (1 - pause)
       if (arrowAlpha > 0.01) {
-        ctx.save()
-        if (arrowAlpha < 1) ctx.globalAlpha = arrowAlpha
+        const prevA = ctx.globalAlpha
+        ctx.globalAlpha = prevA * arrowAlpha
         drawArrows(
           ctx, lastPt[0], lastPt[1],
           opts.momentum, palette, opts.arrowState, opts.dt, opts.now_ms,
         )
-        ctx.restore()
+        ctx.globalAlpha = prevA
       }
     }
 
