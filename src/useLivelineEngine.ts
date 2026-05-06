@@ -14,6 +14,7 @@ import { drawEmpty } from './draw/empty'
 import { createOrderbookState } from './draw/orderbook'
 import { createParticleState } from './draw/particles'
 import { createShakeState } from './draw'
+import { createTimeAxisState } from './draw/timeAxis'
 import { badgeSvgPath, badgePillOnly, BADGE_PAD_X, BADGE_PAD_Y, BADGE_TAIL_LEN, BADGE_TAIL_SPREAD, BADGE_LINE_H } from './draw/badge'
 
 interface EngineConfig {
@@ -591,7 +592,7 @@ export function useLivelineEngine(
   })
   const arrowStateRef = useRef({ up: 0, down: 0 })
   const gridStateRef = useRef({ interval: 0, labels: new Map<number, number>() }) // labels: key=Math.round(val*1000), value=alpha
-  const timeAxisStateRef = useRef({ labels: new Map<number, { alpha: number; text: string }>() })
+  const timeAxisStateRef = useRef(createTimeAxisState())
   const orderbookStateRef = useRef(createOrderbookState())
   const particleStateRef = useRef(createParticleState())
   const shakeStateRef = useRef(createShakeState())

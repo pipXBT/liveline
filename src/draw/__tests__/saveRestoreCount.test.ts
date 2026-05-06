@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest'
 import { drawFrame, createShakeState, type DrawOptions, drawMultiFrame, type MultiSeriesDrawOptions } from '../index'
 import { createRecordCtx, type TraceEvent } from '../../__tests__/recordCtx'
 import type { ChartLayout, LivelinePalette, LivelinePoint } from '../../types'
+import { createTimeAxisState } from '../timeAxis'
 
 function fakeLayout(): ChartLayout {
   const w = 400, h = 200
@@ -67,7 +68,7 @@ function fakeOpts(visible: LivelinePoint[]): DrawOptions {
     formatValue: (v: number) => v.toFixed(2),
     formatTime: (t: number) => String(t),
     gridState: { interval: 0, labels: new Map() },
-    timeAxisState: { labels: new Map() },
+    timeAxisState: createTimeAxisState(),
     dt: 16.67,
     targetWindowSecs: 30,
     tooltipY: 14,
@@ -149,7 +150,7 @@ describe('drawMultiFrame save/restore count', () => {
       formatValue: (v) => v.toFixed(2),
       formatTime: (t) => String(t),
       gridState: { interval: 0, labels: new Map() },
-      timeAxisState: { labels: new Map() },
+      timeAxisState: createTimeAxisState(),
       dt: 16.67,
       targetWindowSecs: 30,
       tooltipY: 14,

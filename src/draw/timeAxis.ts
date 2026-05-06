@@ -2,8 +2,51 @@ import type { LivelinePalette, ChartLayout } from '../types'
 import { niceTimeInterval } from '../math/intervals'
 import { lerp } from '../math/lerp'
 
+export interface TimeAxisLabelSlot {
+  key: number
+  alpha: number
+  text: string
+  used: boolean
+}
+
 export interface TimeAxisState {
-  labels: Map<number, { alpha: number; text: string }>
+  slots: TimeAxisLabelSlot[]
+}
+
+const TIME_AXIS_SLOT_CAP = 32
+
+export function createTimeAxisState(): TimeAxisState {
+  const slots: TimeAxisLabelSlot[] = []
+  for (let i = 0; i < TIME_AXIS_SLOT_CAP; i++) {
+    slots.push({ key: 0, alpha: 0, text: '', used: false })
+  }
+  return { slots }
+}
+
+export function getOrCreateLabel(state: TimeAxisState, key: number): TimeAxisLabelSlot {
+  let firstFree: TimeAxisLabelSlot | null = null
+  let weakest: TimeAxisLabelSlot | null = null
+  for (const slot of state.slots) {
+    if (slot.used && slot.key === key) return slot
+    if (!slot.used && firstFree === null) firstFree = slot
+    if (slot.used && (weakest === null || slot.alpha < weakest.alpha)) weakest = slot
+  }
+  const target = firstFree ?? weakest!
+  target.key = key
+  target.alpha = 0
+  target.text = ''
+  target.used = true
+  return target
+}
+
+export function expireLabel(slot: TimeAxisLabelSlot): void {
+  slot.used = false
+}
+
+export function* iterateUsedLabels(state: TimeAxisState): Generator<TimeAxisLabelSlot> {
+  for (const slot of state.slots) {
+    if (slot.used) yield slot
+  }
 }
 
 const FADE = 0.08
@@ -67,26 +110,21 @@ export function drawTimeAxis(
   // tracks movement, not text content. By the time labels settle, the text
   // is already correct so nothing visibly changes on stationary labels.
   for (const key of targets) {
-    const text = formatTime(key / 100)
-    const existing = state.labels.get(key)
-    if (!existing) {
-      state.labels.set(key, { alpha: 0, text })
-    } else {
-      existing.text = text
-    }
+    const slot = getOrCreateLabel(state, key)
+    slot.text = formatTime(key / 100)
   }
 
   // Update alphas
-  for (const [key, label] of state.labels) {
-    const x = toX(key / 100)
-    const isTarget = targets.has(key)
+  for (const slot of iterateUsedLabels(state)) {
+    const x = toX(slot.key / 100)
+    const isTarget = targets.has(slot.key)
     const target = isTarget ? edgeAlpha(x) : 0
-    let next = lerp(label.alpha, target, FADE, dt)
+    let next = lerp(slot.alpha, target, FADE, dt)
     if (Math.abs(next - target) < 0.02) next = target
     if (next < 0.01 && target === 0) {
-      state.labels.delete(key)
+      expireLabel(slot)
     } else {
-      label.alpha = next
+      slot.alpha = next
     }
   }
 
@@ -106,12 +144,12 @@ export function drawTimeAxis(
 
   // Collect, sort by X, resolve overlaps by keeping the more-visible label
   const labels: { x: number; alpha: number; text: string; w: number }[] = []
-  for (const [key, label] of state.labels) {
-    if (label.alpha < 0.02) continue
-    const x = toX(key / 100)
+  for (const slot of iterateUsedLabels(state)) {
+    if (slot.alpha < 0.02) continue
+    const x = toX(slot.key / 100)
     if (x < chartLeft - 20 || x > chartRight) continue
-    const w = ctx.measureText(label.text).width
-    labels.push({ x, alpha: label.alpha, text: label.text, w })
+    const w = ctx.measureText(slot.text).width
+    labels.push({ x, alpha: slot.alpha, text: slot.text, w })
   }
   labels.sort((a, b) => a.x - b.x)
 
