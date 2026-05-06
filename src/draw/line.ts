@@ -20,18 +20,23 @@ function renderCurve(
   const linePath = splineToPath2D(pts)
 
   if (showFill && fillAlpha > 0.01) {
+    // Fill path can't reuse linePath: Path2D.addPath copies linePath's
+    // moveTo(pts[0]) which starts a fresh subpath inside fillPath, and
+    // the subsequent closePath then closes back to pts[0] instead of the
+    // bottom-left corner — the bottom edge would be missing. Build the
+    // fill region directly on ctx with the existing drawSpline pattern.
     ctx.globalAlpha = baseAlpha * fillAlpha
     const grad = ctx.createLinearGradient(0, pad.top, 0, h - pad.bottom)
     grad.addColorStop(0, palette.fillTop)
     grad.addColorStop(1, palette.fillBottom)
-    const fillPath = new Path2D()
-    fillPath.moveTo(pts[0][0], h - pad.bottom)
-    fillPath.lineTo(pts[0][0], pts[0][1])
-    fillPath.addPath(linePath)
-    fillPath.lineTo(pts[pts.length - 1][0], h - pad.bottom)
-    fillPath.closePath()
     ctx.fillStyle = grad
-    ctx.fill(fillPath)
+    ctx.beginPath()
+    ctx.moveTo(pts[0][0], h - pad.bottom)
+    ctx.lineTo(pts[0][0], pts[0][1])
+    drawSpline(ctx, pts)
+    ctx.lineTo(pts[pts.length - 1][0], h - pad.bottom)
+    ctx.closePath()
+    ctx.fill()
   }
 
   ctx.globalAlpha = baseAlpha * lineAlpha
