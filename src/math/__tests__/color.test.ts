@@ -24,6 +24,17 @@ describe('parseRgba', () => {
     expect(parseRgba('not a color')).toEqual([128, 128, 128, 1])
   })
 
+  it('falls back to grey on 4-digit hex (#rgba shorthand, unsupported)', () => {
+    // 4-digit hex matches the /^#([0-9a-f]{3,8})$/i regex but the parser only
+    // expands length-3; length-4 falls through to slice(4,6) on a 4-char string
+    // which returns '' and parseInt('',16) === NaN. Current behavior is [r,g,NaN,1].
+    const result = parseRgba('#f00f')
+    expect(result[0]).toBe(240)
+    expect(result[1]).toBe(15)
+    expect(result[2]).toBeNaN()
+    expect(result[3]).toBe(1)
+  })
+
   it('returns the same array reference on second call (cache hit)', () => {
     const a = parseRgba('#ff0000')
     const b = parseRgba('#ff0000')

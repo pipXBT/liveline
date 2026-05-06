@@ -1,4 +1,4 @@
-type Rgba = [number, number, number, number]
+type Rgba = readonly [number, number, number, number]
 
 const cache = new Map<string, Rgba>()
 
