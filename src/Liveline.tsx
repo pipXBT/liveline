@@ -62,6 +62,7 @@ export function Liveline({
   onFrame,
   segments,
   staticLayer = false,
+  rightEdgeAt,
   className,
   style,
 }: LivelineProps) {
@@ -229,6 +230,7 @@ export function Liveline({
     segments,
     staticLayer,
     staticCanvasRef: staticLayer ? staticCanvasRef : undefined,
+    rightEdgeAt,
   })
 
   const cursorStyle = scrub ? cursor : 'default'

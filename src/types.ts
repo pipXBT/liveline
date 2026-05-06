@@ -69,6 +69,18 @@ export interface LivelineProps {
   // Time
   window?: number
 
+  /**
+   * When set, overrides the trailing right edge with a fixed time anchor
+   * (unix seconds). Default is undefined, which falls back to the
+   * built-in `now + windowSecs * candleBuffer` trailing behavior.
+   *
+   * Use case: anchor a specific moment (e.g., a round's lock event) at
+   * a chosen position within the visible window. With windowSecs=16 and
+   * rightEdgeAt set to anchor_time + 8, the anchor sits at the visible
+   * window's horizontal center; the left edge becomes anchor_time - 8.
+   */
+  rightEdgeAt?: number
+
   // Feature flags
   grid?: boolean
   badge?: boolean

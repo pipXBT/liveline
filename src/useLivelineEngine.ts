@@ -81,6 +81,10 @@ interface EngineConfig {
   // normal RAF cadence and skips the static layers via DrawOptions.omitStatic.
   staticLayer?: boolean
   staticCanvasRef?: React.RefObject<HTMLCanvasElement | null>
+
+  // When set, overrides the trailing right edge with a fixed time
+  // anchor (unix seconds). See LivelineProps.rightEdgeAt docs.
+  rightEdgeAt?: number
 }
 
 interface BadgeEls {
@@ -1160,7 +1164,7 @@ export function useLivelineEngine(
       const windowTransProgress = windowResult.windowTransProgress
       const isWindowTransitioning = transition.startMs > 0
 
-      const rightEdge = now + windowSecs * candleBuffer
+      const rightEdge = configRef.current.rightEdgeAt ?? now + windowSecs * candleBuffer
       const leftEdge = rightEdge - windowSecs
 
       // --- Live candle OHLC lerp ---
