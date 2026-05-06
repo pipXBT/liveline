@@ -145,6 +145,22 @@ export interface LivelineProps {
    */
   segments?: LineSegment[]
 
+  /**
+   * Render grid + time-axis + reference-line on a separate static canvas
+   * that only repaints when those layers actually change (interval shift,
+   * window transition, range tween, reveal). The dynamic canvas (line,
+   * dot, fill, orderbook, crosshair, badge, particles, fade) keeps its
+   * normal RAF cadence.
+   *
+   * Default: false — static layers paint inline on the dynamic canvas
+   * every frame (pre-Task-5 behavior, byte-identical visuals). Opt in
+   * for dense-update charts to amortize redundant grid/axis paints.
+   *
+   * Currently honored in line mode only. Multi-series and candle modes
+   * still paint inline (even with the flag set).
+   */
+  staticLayer?: boolean
+
   className?: string
   style?: CSSProperties
 }

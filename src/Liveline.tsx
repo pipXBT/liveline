@@ -61,10 +61,12 @@ export function Liveline({
   lineWidth,
   onFrame,
   segments,
+  staticLayer = false,
   className,
   style,
 }: LivelineProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const staticCanvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const valueDisplayRef = useRef<HTMLSpanElement>(null)
   const windowBarRef = useRef<HTMLDivElement>(null)
@@ -225,6 +227,8 @@ export function Liveline({
     hiddenSeriesIds: hiddenSeries,
     onFrame,
     segments,
+    staticLayer,
+    staticCanvasRef: staticLayer ? staticCanvasRef : undefined,
   })
 
   const cursorStyle = scrub ? cursor : 'default'
@@ -480,9 +484,27 @@ export function Liveline({
           ...style,
         }}
       >
+        {staticLayer && (
+          <canvas
+            ref={staticCanvasRef}
+            style={{
+              display: 'block',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              pointerEvents: 'none',
+              zIndex: 0,
+            }}
+          />
+        )}
         <canvas
           ref={canvasRef}
-          style={{ display: 'block', cursor: cursorStyle }}
+          style={{
+            display: 'block',
+            cursor: cursorStyle,
+            position: staticLayer ? 'relative' : undefined,
+            zIndex: staticLayer ? 1 : undefined,
+          }}
         />
       </div>
     </>

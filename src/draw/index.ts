@@ -62,6 +62,8 @@ export interface DrawOptions {
   pauseProgress: number     // 0 = playing, 1 = fully paused
   now_ms: number            // performance.now() for breathing animation timing
   segments?: LineSegment[]  // optional time-keyed line color staining
+  /** When true, skip grid/time-axis/reference-line — caller paints them on a separate static canvas. */
+  omitStatic?: boolean
 }
 
 /**
@@ -101,7 +103,7 @@ export function drawFrame(
   }
 
   // 1. Reference line (behind everything) — fades with reveal
-  if (opts.referenceLine && reveal > 0.01) {
+  if (!opts.omitStatic && opts.referenceLine && reveal > 0.01) {
     const prevA = ctx.globalAlpha
     ctx.globalAlpha = prevA * reveal
     drawReferenceLine(ctx, layout, palette, opts.referenceLine)
@@ -109,7 +111,7 @@ export function drawFrame(
   }
 
   // 2. Grid — fades in delayed (15%–70% of reveal)
-  if (opts.showGrid) {
+  if (!opts.omitStatic && opts.showGrid) {
     const gridAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
     if (gridAlpha > 0.01) {
       const prevA = ctx.globalAlpha
@@ -132,7 +134,7 @@ export function drawFrame(
   const pts = drawLine(ctx, layout, palette, opts.visible, opts.smoothValue, opts.now, opts.showFill, scrubX, opts.scrubAmount, reveal, opts.now_ms, 1, false, 1, opts.segments)
 
   // 4. Time axis — same timing as grid
-  {
+  if (!opts.omitStatic) {
     const timeAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
     if (timeAlpha > 0.01) {
       const prevA = ctx.globalAlpha
@@ -266,6 +268,8 @@ export interface MultiSeriesDrawOptions {
   now_ms: number
   /** Primary palette (from first series) for grid/axis/crosshair colors */
   primaryPalette: LivelinePalette
+  /** When true, skip grid/time-axis/reference-line — caller paints them on a separate static canvas. */
+  omitStatic?: boolean
 }
 
 /**
@@ -286,7 +290,7 @@ export function drawMultiFrame(
   }
 
   // 1. Reference line
-  if (opts.referenceLine && reveal > 0.01) {
+  if (!opts.omitStatic && opts.referenceLine && reveal > 0.01) {
     const prevA = ctx.globalAlpha
     ctx.globalAlpha = prevA * reveal
     drawReferenceLine(ctx, layout, palette, opts.referenceLine)
@@ -294,7 +298,7 @@ export function drawMultiFrame(
   }
 
   // 2. Grid
-  if (opts.showGrid) {
+  if (!opts.omitStatic && opts.showGrid) {
     const gridAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
     if (gridAlpha > 0.01) {
       const prevA = ctx.globalAlpha
@@ -331,7 +335,7 @@ export function drawMultiFrame(
   }
 
   // 4. Time axis
-  {
+  if (!opts.omitStatic) {
     const timeAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
     if (timeAlpha > 0.01) {
       const prevA = ctx.globalAlpha
@@ -410,6 +414,67 @@ export function drawMultiFrame(
         opts.tooltipOutline,
         maxLiveDotX,
       )
+    }
+  }
+}
+
+// ─── Static-layer draw (grid + time axis + reference line) ────────────────
+
+export interface StaticDrawOptions {
+  showGrid: boolean
+  gridState: GridState
+  timeAxisState: TimeAxisState
+  windowSecs: number
+  targetWindowSecs: number
+  formatValue: (v: number) => string
+  formatTime: (t: number) => string
+  dt: number
+  chartReveal: number
+  referenceLine?: ReferenceLine
+}
+
+/**
+ * Paint grid + time axis + reference line onto an isolated canvas.
+ * Caller invokes only when the static state actually changes — see
+ * the engine's dirty-flag triggers. Clears the canvas first.
+ */
+export function drawStaticLayer(
+  ctx: CanvasRenderingContext2D,
+  layout: ChartLayout,
+  palette: LivelinePalette,
+  opts: StaticDrawOptions,
+): void {
+  ctx.clearRect(0, 0, layout.w, layout.h)
+  const reveal = opts.chartReveal
+  const revealRamp = (start: number, end: number) => {
+    const t = Math.max(0, Math.min(1, (reveal - start) / (end - start)))
+    return t * t * (3 - 2 * t)
+  }
+
+  if (opts.referenceLine && reveal > 0.01) {
+    const prevA = ctx.globalAlpha
+    ctx.globalAlpha = prevA * reveal
+    drawReferenceLine(ctx, layout, palette, opts.referenceLine)
+    ctx.globalAlpha = prevA
+  }
+
+  if (opts.showGrid) {
+    const gridAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
+    if (gridAlpha > 0.01) {
+      const prevA = ctx.globalAlpha
+      ctx.globalAlpha = prevA * gridAlpha
+      drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
+      ctx.globalAlpha = prevA
+    }
+  }
+
+  {
+    const timeAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
+    if (timeAlpha > 0.01) {
+      const prevA = ctx.globalAlpha
+      ctx.globalAlpha = prevA * timeAlpha
+      drawTimeAxis(ctx, layout, palette, opts.windowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
+      ctx.globalAlpha = prevA
     }
   }
 }

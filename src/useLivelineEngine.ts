@@ -6,7 +6,7 @@ import { computeRange } from './math/range'
 import { detectMomentum } from './math/momentum'
 import { interpolateAtTime } from './math/interpolate'
 import { getDpr, applyDpr } from './canvas/dpr'
-import { drawFrame, drawCandleFrame, drawMultiFrame, FADE_EDGE_WIDTH } from './draw'
+import { drawFrame, drawCandleFrame, drawMultiFrame, drawStaticLayer, FADE_EDGE_WIDTH } from './draw'
 import { createFrameStatePublisher } from './frame-state'
 import type { MultiSeriesEntry } from './draw'
 import { drawLoading } from './draw/loading'
@@ -74,6 +74,13 @@ interface EngineConfig {
 
   // Optional time-keyed line color staining. See LineSegment in math/segments.
   segments?: LineSegment[]
+
+  // Static-layer split: when enabled, grid + time-axis + reference-line
+  // paint on a sibling canvas, repainted only when their state changes.
+  // The dynamic canvas (line, dot, fill, orderbook, etc.) keeps its
+  // normal RAF cadence and skips the static layers via DrawOptions.omitStatic.
+  staticLayer?: boolean
+  staticCanvasRef?: React.RefObject<HTMLCanvasElement | null>
 }
 
 interface BadgeEls {
@@ -616,6 +623,13 @@ export function useLivelineEngine(
 
   // Reveal state (loading → chart morph)
   const chartRevealRef = useRef(0) // 0 = loading/empty, 1 = fully revealed
+
+  // Static-layer dirty tracking. The sibling canvas only repaints when one
+  // of these triggers fire — see line-mode draw() body for the actual checks.
+  const staticDirtyRef = useRef(true)
+  const staticLastIntervalRef = useRef(0)
+  const staticLastWindowRef = useRef(0)
+  const staticLastRevealRef = useRef(-1)
 
   // Pause state
   const pauseProgressRef = useRef(0) // 0 = playing, 1 = fully paused
@@ -1685,7 +1699,12 @@ export function useLivelineEngine(
       hoverEntries = lastHoverEntriesRef.current
     }
 
-    // Draw multi-series frame
+    // Draw multi-series frame.
+    // Note: omitStatic is intentionally NOT passed here — multi-series mode
+    // does not yet support static-canvas painting, so it always paints
+    // grid/time-axis/reference-line inline even if cfg.staticLayer is set.
+    // The MultiSeriesDrawOptions.omitStatic field exists for forward
+    // compatibility when a multi-series static painter ships.
     drawMultiFrame(ctx, layout, {
       series: seriesEntries,
       now,
@@ -1831,6 +1850,54 @@ export function useLivelineEngine(
       now_ms,
     })
 
+    // Static-layer paint — sibling canvas owns grid/time-axis/reference-line.
+    // Only repaints when state actually changes; the dynamic canvas (this
+    // RAF) skips those layers via DrawOptions.omitStatic below.
+    if (cfg.staticLayer && cfg.staticCanvasRef?.current) {
+      const staticCanvas = cfg.staticCanvasRef.current
+      if (staticCanvas.width !== targetW || staticCanvas.height !== targetH) {
+        staticCanvas.width = targetW
+        staticCanvas.height = targetH
+        staticCanvas.style.width = `${w}px`
+        staticCanvas.style.height = `${h}px`
+        staticDirtyRef.current = true
+      }
+
+      const intervalChanged = gridStateRef.current.interval !== staticLastIntervalRef.current
+      const windowChanged = Math.abs(displayWindowRef.current - staticLastWindowRef.current) > 0.001
+      const revealChanged = Math.abs(chartRevealRef.current - staticLastRevealRef.current) > 0.005
+      const rangeMoving = !rangeInitedRef.current ||
+        Math.abs(displayMinRef.current - targetMinRef.current) > 0.0001 ||
+        Math.abs(displayMaxRef.current - targetMaxRef.current) > 0.0001
+
+      if (intervalChanged || windowChanged || revealChanged || rangeMoving) {
+        staticDirtyRef.current = true
+      }
+
+      if (staticDirtyRef.current) {
+        const sCtx = staticCanvas.getContext('2d')
+        if (sCtx) {
+          applyDpr(sCtx, dpr, w, h)
+          drawStaticLayer(sCtx, layout, cfg.palette, {
+            showGrid: cfg.showGrid,
+            gridState: gridStateRef.current,
+            timeAxisState: timeAxisStateRef.current,
+            windowSecs,
+            targetWindowSecs: cfg.windowSecs,
+            formatValue: cfg.formatValue,
+            formatTime: cfg.formatTime,
+            dt,
+            chartReveal: chartRevealRef.current,
+            referenceLine: cfg.referenceLine,
+          })
+        }
+        staticLastIntervalRef.current = gridStateRef.current.interval
+        staticLastWindowRef.current = displayWindowRef.current
+        staticLastRevealRef.current = chartRevealRef.current
+        staticDirtyRef.current = false
+      }
+    }
+
     // Momentum
     const momentum: Momentum = cfg.momentumOverride ?? detectMomentum(visible)
 
@@ -1886,6 +1953,7 @@ export function useLivelineEngine(
       pauseProgress,
       now_ms,
       segments: cfg.segments,
+      omitStatic: cfg.staticLayer === true,
     })
 
     // During morph (chart ↔ empty), overlay the gradient gap + text on
