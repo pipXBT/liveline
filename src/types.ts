@@ -81,6 +81,16 @@ export interface LivelineProps {
    */
   rightEdgeAt?: number
 
+  /**
+   * When true and `referenceLine` is set, the Y-axis is forced
+   * symmetric around the reference value: floor and ceiling are
+   * equidistant from it, so the reference line sits at the chart's
+   * vertical midpoint regardless of which side the data has moved
+   * toward. Pairs naturally with `exaggerate` to put a "this is the
+   * pivot" price level dead-center during a focused window.
+   */
+  centerOnReference?: boolean
+
   // Feature flags
   grid?: boolean
   badge?: boolean

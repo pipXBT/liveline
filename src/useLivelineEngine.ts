@@ -85,6 +85,10 @@ interface EngineConfig {
   // When set, overrides the trailing right edge with a fixed time
   // anchor (unix seconds). See LivelineProps.rightEdgeAt docs.
   rightEdgeAt?: number
+
+  // When true (and referenceLine is set), Y-axis is forced symmetric
+  // around the reference value. See LivelineProps.centerOnReference docs.
+  centerOnReference?: boolean
 }
 
 interface BadgeEls {
@@ -185,7 +189,7 @@ function updateWindowTransition(
       }
     }
     if (targetVisible.length > 0) {
-      const targetRange = computeRange(targetVisible, smoothValue, cfg.referenceLine?.value, cfg.exaggerate)
+      const targetRange = computeRange(targetVisible, smoothValue, cfg.referenceLine?.value, cfg.exaggerate, cfg.centerOnReference)
       wt.rangeToMin = targetRange.min
       wt.rangeToMax = targetRange.max
     }
@@ -1608,7 +1612,7 @@ export function useLivelineEngine(
           if (p.time >= targetLeftEdge - 2 && p.time <= targetRightEdge) targetVisible.push(p)
         }
         if (targetVisible.length > 0) {
-          const range = computeRange(targetVisible, sv, cfg.referenceLine?.value, cfg.exaggerate)
+          const range = computeRange(targetVisible, sv, cfg.referenceLine?.value, cfg.exaggerate, cfg.centerOnReference)
           if (range.min < unionMin) unionMin = range.min
           if (range.max > unionMax) unionMax = range.max
         }
@@ -1645,7 +1649,7 @@ export function useLivelineEngine(
       if (visible.length >= 2) {
         // Only include in range if series is at least partially visible
         if (alpha > 0.01) {
-          const range = computeRange(visible, sv, cfg.referenceLine?.value, cfg.exaggerate)
+          const range = computeRange(visible, sv, cfg.referenceLine?.value, cfg.exaggerate, cfg.centerOnReference)
           if (range.min < globalMin) globalMin = range.min
           if (range.max > globalMax) globalMax = range.max
         }
@@ -1861,7 +1865,7 @@ export function useLivelineEngine(
     }
 
     // Compute + smooth Y range
-    const computedRange = computeRange(visible, smoothValue, cfg.referenceLine?.value, cfg.exaggerate)
+    const computedRange = computeRange(visible, smoothValue, cfg.referenceLine?.value, cfg.exaggerate, cfg.centerOnReference)
     const isWindowTransitioning = transition.startMs > 0
     const rangeResult = updateRange(
       computedRange, rangeInitedRef.current,

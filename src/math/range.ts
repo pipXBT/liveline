@@ -3,12 +3,19 @@ import type { LivelinePoint } from '../types'
 /**
  * Compute visible Y range from data points + current value.
  * Returns { min, max } with margin applied.
+ *
+ * When `centerOnReference` is true and `referenceValue` is set, the
+ * range is forced symmetric around the reference value: the floor
+ * and ceiling are equidistant from it. Used to keep a horizontal
+ * reference line at the chart's vertical midpoint regardless of
+ * which side the data has moved toward.
  */
 export function computeRange(
   visible: LivelinePoint[],
   currentValue: number,
   referenceValue?: number,
   exaggerate?: boolean,
+  centerOnReference?: boolean,
 ): { min: number; max: number } {
   let targetMin = Infinity
   let targetMax = -Infinity
@@ -25,6 +32,18 @@ export function computeRange(
   if (referenceValue !== undefined) {
     if (referenceValue < targetMin) targetMin = referenceValue
     if (referenceValue > targetMax) targetMax = referenceValue
+  }
+
+  // Symmetric centering on the reference value: extend the closer side
+  // out to match the farther side so the reference sits at vertical
+  // mid-height.
+  if (centerOnReference && referenceValue !== undefined) {
+    const dist = Math.max(
+      Math.abs(targetMax - referenceValue),
+      Math.abs(referenceValue - targetMin),
+    )
+    targetMin = referenceValue - dist
+    targetMax = referenceValue + dist
   }
 
   const rawRange = targetMax - targetMin
