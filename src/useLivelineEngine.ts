@@ -259,6 +259,43 @@ function updateRange(
   }
 }
 
+export interface HitTestArgs {
+  hoverPixelX: number | null
+  pad: Required<Padding>
+  w: number
+  layout: ChartLayout
+  now: number
+  visible: LivelinePoint[]
+  leftEdge: number
+  rightEdge: number
+  chartW: number
+}
+
+export interface HitTestResult {
+  x: number
+  value: number
+  time: number
+}
+
+/**
+ * Pure hit test: given a pointer X in canvas pixel space, return the
+ * interpolated chart position. Returns null if the pointer is outside
+ * the chart area or interpolation fails (no visible points).
+ *
+ * No state, no side effects — safe to call from pointer-event handlers.
+ */
+export function hitTestHover(args: HitTestArgs): HitTestResult | null {
+  const { hoverPixelX, pad, w, layout, now, visible, leftEdge, rightEdge, chartW } = args
+  if (hoverPixelX === null) return null
+  if (hoverPixelX < pad.left || hoverPixelX > w - pad.right) return null
+  const maxHoverX = layout.toX(now)
+  const clampedX = Math.min(hoverPixelX, maxHoverX)
+  const t = leftEdge + ((clampedX - pad.left) / chartW) * (rightEdge - leftEdge)
+  const v = interpolateAtTime(visible, t)
+  if (v === null) return null
+  return { x: clampedX, value: v, time: t }
+}
+
 /** Compute hover position, interpolated value, and scrub amount. */
 function updateHoverState(
   hoverPixelX: number | null,
@@ -275,6 +312,7 @@ function updateHoverState(
   rightEdge: number,
   chartW: number,
   dt: number,
+  hitTestThisFrame: boolean,
 ): {
   hoverX: number | null; hoverValue: number | null; hoverTime: number | null
   scrubAmount: number; isActiveHover: boolean
@@ -285,18 +323,23 @@ function updateHoverState(
   let hoverChartX: number | null = null
   let isActiveHover = false
 
-  if (hoverPixelX !== null && hoverPixelX >= pad.left && hoverPixelX <= w - pad.right) {
-    const maxHoverX = layout.toX(now)
-    const clampedX = Math.min(hoverPixelX, maxHoverX)
-    const t = leftEdge + ((clampedX - pad.left) / chartW) * (rightEdge - leftEdge)
-    const v = interpolateAtTime(visible, t)
-    if (v !== null) {
-      hoverValue = v
-      hoverTime = t
-      hoverChartX = clampedX
+  const result = hitTestThisFrame
+    ? hitTestHover({ hoverPixelX, pad, w, layout, now, visible, leftEdge, rightEdge, chartW })
+    : null
+  if (result) {
+    hoverValue = result.value
+    hoverTime = result.time
+    hoverChartX = result.x
+    isActiveHover = true
+    lastHover = result
+    cfg.onHover?.({ time: result.time, value: result.value, x: result.x, y: layout.toY(result.value) })
+  } else if (hoverPixelX !== null && hoverPixelX >= pad.left && hoverPixelX <= w - pad.right) {
+    // In-bounds and pointer didn't move this frame — reuse lastHover snapshot.
+    if (lastHover) {
+      hoverValue = lastHover.value
+      hoverTime = lastHover.time
+      hoverChartX = lastHover.x
       isActiveHover = true
-      lastHover = { x: clampedX, value: v, time: t }
-      cfg.onHover?.({ time: t, value: v, x: clampedX, y: layout.toY(v) })
     }
   }
 
@@ -620,6 +663,7 @@ export function useLivelineEngine(
   const scrubAmountRef = useRef(0) // 0 = not scrubbing, 1 = fully scrubbing
   const lastHoverRef = useRef<{ x: number; value: number; time: number } | null>(null)
   const lastHoverEntriesRef = useRef<{ color: string; label: string; value: number }[]>([])
+  const lastHitTestedXRef = useRef<number | null>(null)
 
   // Reveal state (loading → chart morph)
   const chartRevealRef = useRef(0) // 0 = loading/empty, 1 = fully revealed
@@ -1902,11 +1946,15 @@ export function useLivelineEngine(
     const momentum: Momentum = cfg.momentumOverride ?? detectMomentum(visible)
 
     // Hover + scrub
+    const currentHoverX = hoverXRef.current
+    const hitTestThisFrame = currentHoverX !== lastHitTestedXRef.current
     const hoverResult = updateHoverState(
-      hoverXRef.current, pad, w, layout, now, visible,
+      currentHoverX, pad, w, layout, now, visible,
       scrubAmountRef.current, lastHoverRef.current,
       cfg, noMotion, leftEdge, rightEdge, chartW, dt,
+      hitTestThisFrame,
     )
+    lastHitTestedXRef.current = currentHoverX
     scrubAmountRef.current = hoverResult.scrubAmount
     lastHoverRef.current = hoverResult.lastHover
     const { hoverX: drawHoverX, hoverValue: drawHoverValue, hoverTime: drawHoverTime } = hoverResult
