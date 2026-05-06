@@ -287,20 +287,20 @@ export function drawMultiFrame(
 
   // 1. Reference line
   if (opts.referenceLine && reveal > 0.01) {
-    ctx.save()
-    if (reveal < 1) ctx.globalAlpha = reveal
+    const prevA = ctx.globalAlpha
+    ctx.globalAlpha = prevA * reveal
     drawReferenceLine(ctx, layout, palette, opts.referenceLine)
-    ctx.restore()
+    ctx.globalAlpha = prevA
   }
 
   // 2. Grid
   if (opts.showGrid) {
     const gridAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
     if (gridAlpha > 0.01) {
-      ctx.save()
-      if (gridAlpha < 1) ctx.globalAlpha = gridAlpha
+      const prevA = ctx.globalAlpha
+      ctx.globalAlpha = prevA * gridAlpha
       drawGrid(ctx, layout, palette, opts.formatValue, opts.gridState, opts.dt)
-      ctx.restore()
+      ctx.globalAlpha = prevA
     }
   }
 
@@ -334,10 +334,10 @@ export function drawMultiFrame(
   {
     const timeAlpha = reveal < 1 ? revealRamp(0.15, 0.7) : 1
     if (timeAlpha > 0.01) {
-      ctx.save()
-      if (timeAlpha < 1) ctx.globalAlpha = timeAlpha
+      const prevA = ctx.globalAlpha
+      ctx.globalAlpha = prevA * timeAlpha
       drawTimeAxis(ctx, layout, palette, opts.windowSecs, opts.targetWindowSecs, opts.formatTime, opts.timeAxisState, opts.dt)
-      ctx.restore()
+      ctx.globalAlpha = prevA
     }
   }
 

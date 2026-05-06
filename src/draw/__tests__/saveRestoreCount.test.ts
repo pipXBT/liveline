@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { drawFrame, createShakeState, type DrawOptions } from '../index'
+import { drawFrame, createShakeState, type DrawOptions, drawMultiFrame, type MultiSeriesDrawOptions } from '../index'
 import { createRecordCtx, type TraceEvent } from '../../__tests__/recordCtx'
 import type { ChartLayout, LivelinePalette, LivelinePoint } from '../../types'
 
@@ -109,5 +109,54 @@ describe('drawFrame save/restore count', () => {
     if (lastAlphaSet) {
       expect(lastAlphaSet[2]).toBeCloseTo(0.7, 5)
     }
+  })
+})
+
+describe('drawMultiFrame save/restore count', () => {
+  it('uses fewer save/restore pairs after refactor', () => {
+    const { ctx, trace } = createRecordCtx()
+    const palette = fakePalette()
+    const opts: MultiSeriesDrawOptions = {
+      series: [
+        {
+          visible: [
+            { time: 0, value: 100 },
+            { time: 15, value: 150 },
+            { time: 30, value: 160 },
+          ],
+          smoothValue: 160,
+          palette,
+        },
+      ],
+      now: 30,
+      showGrid: true,
+      showPulse: false,
+      hoverX: null, hoverTime: null, hoverEntries: [],
+      scrubAmount: 0,
+      windowSecs: 30,
+      formatValue: (v) => v.toFixed(2),
+      formatTime: (t) => String(t),
+      gridState: { interval: 0, labels: new Map() },
+      timeAxisState: { labels: new Map() },
+      dt: 16.67,
+      targetWindowSecs: 30,
+      tooltipY: 14,
+      tooltipOutline: true,
+      chartReveal: 1,
+      pauseProgress: 0,
+      now_ms: 1_700_000_000_000,
+      primaryPalette: palette,
+    }
+    drawMultiFrame(ctx, fakeLayout(), opts)
+
+    const saves = countOps(trace, 'save')
+    const restores = countOps(trace, 'restore')
+    expect(saves).toBe(restores)
+    // After removing alpha-only wrappers from drawMultiFrame (referenceLine, grid, timeAxis),
+    // the remaining saves are non-alpha-only: per-series line (wraps drawLine which mutates
+    // strokeStyle/etc), dot+label block, left-edge fade composite, plus internal sub-function
+    // saves (grid per-label, timeAxis per-label, drawLine clip, drawSimpleDot has no save).
+    // One extra save vs drawFrame due to the per-series line wrapper.
+    expect(saves).toBeLessThanOrEqual(9)
   })
 })
